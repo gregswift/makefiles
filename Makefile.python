@@ -1,3 +1,5 @@
+#SERIAL 201411242120
+
 # Base the name of the software on the spec file
 PACKAGE := $(shell basename *.spec .spec)
 # Override this arch if the software is arch specific
@@ -24,6 +26,12 @@ RPMBUILD = rpmbuild --define "_topdir %(pwd)/build" \
 # Allow which python to be overridden at the environment level
 PYTHON := $(shell which python)
 
+ifneq ("$(wildcard setup.py)","")
+GET_SDIST = ${PYTHON} setup.py sdist -d "${SDISTDIR}"
+else
+GET_SDIST = spectool -g -C ${SDISTDIR} ${PACKAGE}.spec
+endif
+
 all: rpms
 
 clean:
@@ -36,7 +44,7 @@ clean_all: clean
 	rm -rf ${ARTIFACTDIR}/
 
 manpage:
-	gzip -c docs/${PACKAGE}.1 > docs/${PACKAGE}.1.gz
+	-gzip -c docs/${PACKAGE}.1 > docs/${PACKAGE}.1.gz
 
 build: clean manpage
 	${PYTHON} setup.py build -f
@@ -57,7 +65,8 @@ uninstall_rpms: clean
 	rpm -e ${PACKAGE}
 
 sdist:
-	${PYTHON} setup.py sdist -d "${SDISTDIR}"
+	mkdir -p ${SDISTDIR}
+	${GET_SDIST}
 
 prep_rpmbuild: prep_build
 	mkdir -p ${RPMBUILDDIR}

@@ -9,7 +9,6 @@ ARCH = noarch
 BUILDDIR = ./build
 ARTIFACTDIR = ./artifacts
 SDISTDIR = ${ARTIFACTDIR}/sdist
-WHEELDIR = ${ARTIFACTDIR}/wheels
 RPMBUILDDIR = ${BUILDDIR}/rpm-build
 RPMDIR = ${ARTIFACTDIR}/rpms
 DEBBUILDDIR = ${BUILDDIR}/deb-build
@@ -24,34 +23,16 @@ RPMBUILD = rpmbuild --define "_topdir %(pwd)/build" \
 	--define "_srcrpmdir %{_rpmdir}" \
 	--define "_rpmdir %(pwd)/artifacts/rpms"
 
-# Allow which python to be overridden at the environment level
-PYTHON := $(shell which python)
-
-ifneq ("$(wildcard setup.py)","")
-GET_SDIST = ${PYTHON} setup.py sdist -d "${SDISTDIR}"
-else
 GET_SDIST = spectool -g -C ${SDISTDIR} ${PACKAGE}.spec
-endif
 
 all: rpms
 
 clean:
 	rm -rf ${BUILDDIR}/ *~
 	rm -rf docs/*.gz
-	rm -rf *.egg-info
-	find . -name '*.pyc' -exec rm -f {} \;
 
 clean_all: clean
 	rm -rf ${ARTIFACTDIR}/
-
-manpage:
-	-gzip -c docs/${PACKAGE}.1 > docs/${PACKAGE}.1.gz
-
-build: clean manpage
-	${PYTHON} setup.py build -f
-
-install: build
-	${PYTHON} setup.py install -f --root ${DESTDIR}
 
 install_rpms: rpms
 	yum install ${RPMDIR}/${ARCH}/${PACKAGE}*.${ARCH}.rpm
@@ -60,18 +41,15 @@ reinstall: uninstall install
 
 uninstall: clean
 	rm -f /usr/bin/${PACKAGE}
-	rm -rf /usr/lib/python*/site-packages/${PACKAGE}
 
 uninstall_rpms: clean
 	rpm -e ${PACKAGE}
 
 sdist:
 	mkdir -p ${SDISTDIR}
+	cp *.patch ${SDISTDIR}
+	cp *.default ${SDISTDIR}
 	${GET_SDIST}
-
-wheel:
-	mkdir -p ${WHEELDIR}
-	${PYTHON} setup.py bdist_wheel -d "${WHEELDIR}"
 
 prep_rpmbuild: prep_build
 	mkdir -p ${RPMBUILDDIR}
@@ -87,7 +65,7 @@ srpm: prep_rpmbuild
 mock: srpm
 	mock ${RPMDIR}/${PACKAGE}*.src.rpm
 
-prep_build: manpage sdist
+prep_build: sdist
 	mkdir -p ${BUILDDIR}
 
 prep_debbuild: prep_build

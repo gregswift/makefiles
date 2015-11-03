@@ -63,7 +63,7 @@ srpm: prep_rpmbuild
 	${RPMBUILD} -bs ${PACKAGE}.spec
 
 mock: srpm
-	mock ${RPMDIR}/${PACKAGE}*.src.rpm
+	mock ${MOCK_OPTIONS} ${RPMDIR}/${PACKAGE}*.src.rpm
 
 prep_build: sdist
 	mkdir -p ${BUILDDIR}

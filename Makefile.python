@@ -1,4 +1,4 @@
-#SERIAL 201511022215
+#SERIAL 201601291542
 
 # Base the name of the software on the spec file
 PACKAGE := $(shell basename *.spec .spec)
@@ -31,6 +31,10 @@ ifneq ("$(wildcard setup.py)","")
 GET_SDIST = ${PYTHON} setup.py sdist -d "${SDISTDIR}"
 else
 GET_SDIST = spectool -g -C ${SDISTDIR} ${PACKAGE}.spec
+endif
+
+ifneq ($(origin MOCK_REPO), undefined)
+MOCK_REPO_MACRO := -r ${MOCK_REPO}
 endif
 
 all: rpms
@@ -76,7 +80,7 @@ wheel:
 prep_rpmbuild: prep_build
 	mkdir -p ${RPMBUILDDIR}
 	mkdir -p ${RPMDIR}
-	cp ${SDISTDIR}/*gz ${RPMBUILDDIR}/
+	-cp -p *.patch ${SDISTDIR}/
 
 rpms: prep_rpmbuild
 	${RPMBUILD} -ba ${PACKAGE}.spec
@@ -85,7 +89,7 @@ srpm: prep_rpmbuild
 	${RPMBUILD} -bs ${PACKAGE}.spec
 
 mock: srpm
-	mock ${MOCK_OPTIONS} ${RPMDIR}/${PACKAGE}*.src.rpm
+	mock ${MOCK_OPTIONS} ${MOCK_REPO_MACRO} --cleanup-after --resultdir=${RPMDIR} ${RPMDIR}/${PACKAGE}*.src.rpm
 
 prep_build: manpage sdist
 	mkdir -p ${BUILDDIR}

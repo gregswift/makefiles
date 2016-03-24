@@ -1,4 +1,4 @@
-#SERIAL 201601291542
+#SERIAL 201603202246
 
 # Base the name of the software on the spec file
 PACKAGE := $(shell basename *.spec .spec)
@@ -55,7 +55,7 @@ build: clean manpage
 	${PYTHON} setup.py build -f
 
 install: build
-	${PYTHON} setup.py install -f --root ${DESTDIR}
+	${PYTHON} setup.py install -f --root ${DESTDIR}/
 
 install_rpms: rpms
 	yum install ${RPMDIR}/${ARCH}/${PACKAGE}*.${ARCH}.rpm

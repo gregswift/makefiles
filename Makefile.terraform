@@ -1,0 +1,88 @@
+# This makefile is intended to enable Terraform repositories.
+# We've had some success with using it manually and with Jenkins.
+#
+# We mainly run with it from Linux. If you want to see if support
+# other OSes send a PR :D
+
+.PHONY: all docs taint-node select plan apply
+.SILENT: banner help
+
+## Terraform is very version specific, so know what you need
+TF_VERSION = 0.10.2
+
+# Uncomment this block if you use S3 for buckets
+#ifeq ($(origin AWS_ACCESS_KEY_ID), undefined)
+#$(error Environment variable AWS_ACCESS_KEY_ID needs to be defined)
+#endif
+#
+#ifeq ($(origin AWS_SECRET_ACCESS_KEY), undefined)
+#$(error Environment variable AWS_SECRET_ACCESS_KEY needs to be defined)
+#endif
+#
+#ifeq ($(origin AWS_SESSION_TOKEN), undefined)
+#$(warn For temporary credentials the environment variable AWS_SESSION_TOKEN needs to be defined)
+#endif
+
+TF_PATH = ./terraform
+
+ifeq ("${TF_PATH}", "./terraform")
+  ifeq ("$(wildcard $(TF_PATH))", "")
+    ifneq ("$(shell uname)", "Linux")
+        $(error This only works on linux for now... pr welcome)
+    endif
+    BASE_URL = https://releases.hashicorp.com/terraform/${TF_VERSION}/
+    ARCHIVE_FILE = terraform_${TF_VERSION}_linux_amd64.zip
+    BOOTSTRAP_CMD := test ! -f ${TF_PATH} && curl -O ${BASE_URL}${ARCHIVE_FILE} && unzip ${ARCHIVE_FILE} && rm -f ${ARCHIVE_FILE}
+  endif
+endif
+
+ifeq ($(origin BOOTSTRAP_CMD), undefined)
+    BOOTSTRAP_CMD := echo "INFO: Using installed ${TF_PATH}"
+endif
+
+
+all: help
+
+help:   ## Show this help, includes list of all actions.
+	@awk 'BEGIN {FS = ":.*?## "}; /^.+: .*?## / && !/awk/ {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' ${MAKEFILE_LIST}
+
+clean: ## Cleanup the local checkout
+	-rm -f *.zip terraform *.backup
+
+setup: ## Use this to install terraform
+	-${BOOTSTRAP_CMD}
+
+init: ## Initalize shared storage bucket for state and ensure modules are loaded
+	@if [ ! -d .terraform ]; then ${TF_PATH} init; else ${TF_PATH} get --update > /dev/null;fi
+
+list-workspaces: init ## Displays list of workspaces
+	${TF_PATH} workspace list
+
+new-workspace-%: init ## Creates and selects a new workspace
+	${TF_PATH} workspace new $*
+
+select-%: init ## Change to the provided workspace
+	${TF_PATH} workspace select $*
+
+plan-%: select-% plan ## Run terraform plan against the defined workspace
+	: # This is because make doesnt like this target to not have any actions
+
+plan: init  ## Run terraform plan against the current workspace
+	${TF_PATH} plan -var-file=$(shell cat .terraform/environment | sed 's!\.!/!').tfvars
+
+test: plan ## Standard entry point for running tests. Calls plan
+
+apply-%: select-% apply ## Run terraform apply against the defined workspace
+	: # This is because make doesnt like this target to not have any actions
+
+apply: init ## Run terraform apply against the current workspace
+	${TF_PATH} apply -var-file=$(shell cat .terraform/environment | sed 's!\.!/!').tfvars
+
+show: init ## Run terraform show against the current workspace
+	${TF_PATH} show
+
+show-node: init ## Run terraform show against the current workspace. NODE_REGEX search pattern
+	${TF_PATH} show  | grep -P '^module| id| ip' | grep -C1 -P "${NODE_REGEX}"
+
+taint-node: init ## Run terraform taint against the current workspace. NODE_REGEX search pattern
+	./scripts/taint.sh ${TF_PATH} ${NODE_REGEX}

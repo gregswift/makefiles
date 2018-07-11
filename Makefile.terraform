@@ -68,7 +68,7 @@ plan-%: select-% plan ## Run terraform plan against the defined workspace
 	: # This is because make doesnt like this target to not have any actions
 
 plan: init  ## Run terraform plan against the current workspace
-	${TF_PATH} plan -var-file=$(shell cat .terraform/environment | sed 's!\.!/!').tfvars
+	${TF_PATH} plan -var-file=$(shell cat .terraform/environment).tfvars
 
 test: plan ## Standard entry point for running tests. Calls plan
 
@@ -76,7 +76,7 @@ apply-%: select-% apply ## Run terraform apply against the defined workspace
 	: # This is because make doesnt like this target to not have any actions
 
 apply: init ## Run terraform apply against the current workspace
-	${TF_PATH} apply -var-file=$(shell cat .terraform/environment | sed 's!\.!/!').tfvars
+	${TF_PATH} apply -var-file=$(shell cat .terraform/environment).tfvars
 
 show: init ## Run terraform show against the current workspace
 	${TF_PATH} show

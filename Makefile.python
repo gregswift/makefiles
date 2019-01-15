@@ -1,4 +1,22 @@
-#SERIAL 201603202246
+#SERIAL 2019011501
+
+VIRTUALENV := virtualenv
+VENV := .venv
+ifdef USE_PYENV
+  VENV_ACTIVATE := :
+else
+  VENV_ACTIVATE := source $(VENV)/bin/activate
+endif
+PREP              := $(VENV_ACTIVATE)
+
+PYTEST := env PYTHONPATH=$(PYTHONPATH) PYTEST=1 $(VENV)/bin/py.test
+PYLINT := env PYTHONPATH=$(PYTHONPATH) $(VENV)/bin/pylint --disable=I0011 --msg-template="{path}:{line}: [{msg_id}({symbol}), {obj}] {msg}"
+PYCODESTYLE := env PYTHONPATH=$(PYTHONPATH) $(VENV)/bin/pycodestyle --repeat --ignore=E202,E501,E402
+PYTHON := env PYTHONPATH=$(PYTHONPATH) $(VENV)/bin/python
+PIP := $(VENV)/bin/pip
+
+
+TEST_REQUIREMENTS := -r test-requirements.txt
 
 # Base the name of the software on the spec file
 PACKAGE := $(shell basename *.spec .spec)
@@ -39,19 +57,44 @@ endif
 
 all: rpms
 
+default: check-coding-style
+
 clean:
 	rm -rf ${BUILDDIR}/ *~
 	rm -rf docs/*.gz
 	rm -rf *.egg-info
 	find . -name '*.pyc' -exec rm -f {} \;
 
+
 clean_all: clean
 	rm -rf ${ARTIFACTDIR}/
 
-manpage:
-	-gzip -c docs/${PACKAGE}.1 > docs/${PACKAGE}.1.gz
+venv:
+	test -d $(VENV) || $(VIRTUALENV) $(VENV) --no-site-packages
 
-build: clean manpage
+requirements:
+	@if [ -d wheelhouse ]; then \
+		$(PIP) install -q --no-index --find-links=wheelhouse $(TEST_REQUIREMENTS); \
+	else \
+		$(PIP) install -q $(TEST_REQUIREMENTS); \
+	fi
+
+setup: venv requirements
+
+check-coding-style: bootstrap
+	$(PYCODESTYLE) $(PYTHON_MODULES)
+	$(PYLINT) -E $(PYTHON_MODULES)
+
+pylint-full: check-coding-style
+	$(PYLINT) $(PYTHON_MODULES)
+
+test: check-coding-style
+	$(PYTEST) $(PYTHON_MODULES)
+
+check:
+	$(PYTEST) $(PYTHON_MODULES)
+
+build: clean
 	${PYTHON} setup.py build -f
 
 install: build
@@ -91,7 +134,7 @@ srpm: prep_rpmbuild
 mock: srpm
 	mock ${MOCK_OPTIONS} ${MOCK_REPO_MACRO} --cleanup-after --resultdir=${RPMDIR} ${RPMDIR}/${PACKAGE}*.src.rpm
 
-prep_build: manpage sdist
+prep_build: sdist
 	mkdir -p ${BUILDDIR}
 
 prep_debbuild: prep_build
@@ -112,4 +155,6 @@ debs: prep_debbuild
 	cd ${DEBBUILDDIR}/$$BASE; \
 	debuild -uc -us
 	mv ${DEBBUILDDIR}/*.deb ${DEBDIR}/
+
+.PHONY: default venv requirements bootstrap check-coding-style pylint-full test check
 

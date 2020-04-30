@@ -4,52 +4,49 @@
 # We mainly run with it from Linux. If you want to see if support
 # other OSes send a PR :D
 
-.PHONY: all docs taint-node select plan apply
+.PHONY: all help
+.PHONY: check-env check-workspace setup test clean init
+.PHONY: list-workspaces new-workspace-% select-%
+.PHONY: plan plan-% apply apply-%
+.PHONY: show show-node taint-node
 .SILENT: banner help
 
 ## Terraform is very version specific, so know what you need
-TF_VERSION = 0.11.11
+TF_VERSION = 0.11.13
 
 TF_PATH = ./terraform
 
-ifeq ("${TF_PATH}", "./terraform")
-  ifeq ("$(wildcard $(TF_PATH))", "")
-    ifeq ("$(shell uname)", "Linux")
-      ARCHIVE_FILE = terraform_${TF_VERSION}_linux_amd64.zip
-    else
-      ifeq ("$(shell uname)", "Darwin")
-        ARCHIVE_FILE = terraform_${TF_VERSION}_darwin_amd64.zip
-      else
-        $(error This only works on darwin and linux for now... PRs welcome)
-      endif
-    endif
-    BASE_URL = https://releases.hashicorp.com/terraform/${TF_VERSION}/
-    BOOTSTRAP_CMD := test ! -f ${TF_PATH} && curl -O ${BASE_URL}${ARCHIVE_FILE} && unzip ${ARCHIVE_FILE} && rm -f ${ARCHIVE_FILE}
+ifeq ("$(shell uname)", "Linux")
+  ARCHIVE_FILE = terraform_${TF_VERSION}_linux_amd64.zip
+else
+  ifeq ("$(shell uname)", "Darwin")
+    ARCHIVE_FILE = terraform_${TF_VERSION}_darwin_amd64.zip
+  else
+    $(error ERROR: This only works on darwin and linux for now... PRs welcome)
   endif
 endif
 
-ifeq ($(origin BOOTSTRAP_CMD), undefined)
-    BOOTSTRAP_CMD := echo "INFO: Using installed ${TF_PATH}"
-endif
+BASE_URL = https://releases.hashicorp.com/terraform/${TF_VERSION}/
+BOOTSTRAP_CMD := test ! -f ${TF_PATH} && curl -O ${BASE_URL}${ARCHIVE_FILE} && unzip ${ARCHIVE_FILE} && rm -f ${ARCHIVE_FILE} || echo "INFO: Using existing ${TF_PATH}"
+
+WORKSPACE := test -f ${TF_PATH} && ${TF_PATH} workspace show
 
 all: help
 
-check-env:
-# Uncomment this block if you use S3 for buckets
-#ifeq ($(origin AWS_ACCESS_KEY_ID), undefined)
-#$(error Environment variable AWS_ACCESS_KEY_ID needs to be defined)
-#endif
-#
-#ifeq ($(origin AWS_SECRET_ACCESS_KEY), undefined)
-#$(error Environment variable AWS_SECRET_ACCESS_KEY needs to be defined)
-#endif
-#
-#ifeq ($(origin AWS_SESSION_TOKEN), undefined)
-#$(warn For temporary credentials the environment variable AWS_SESSION_TOKEN needs to be defined)
-#endif
-
 help:   ## Show this help, includes list of all actions.
 	@awk 'BEGIN {FS = ":.*?## "}; /^.+: .*?## / && !/awk/ {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' ${MAKEFILE_LIST}
+
+check-workspace: init
+	@if [ "$(shell ${TF_PATH} workspace show)" == "default" ]; then echo 'ERROR: Change to a specific workspace: make select-<tier>.<region>'; exit 43; fi
+
+check-env:
+ifeq ($(origin AWS_ACCESS_KEY_ID), undefined)
+$(error ERROR: Environment variable AWS_ACCESS_KEY_ID needs to be defined)
+endif
+
+ifeq ($(origin AWS_SECRET_ACCESS_KEY), undefined)
+$(error ERROR: Environment variable AWS_SECRET_ACCESS_KEY needs to be defined)
+endif
 
 clean: ## Cleanup the local checkout
 	-rm -f *.zip terraform *.backup
@@ -57,7 +54,7 @@ clean: ## Cleanup the local checkout
 setup: ## Use this to install terraform
 	-${BOOTSTRAP_CMD}
 
-init: ## Initalize shared storage bucket for state and ensure modules are loaded
+init: setup check-env ## Initalize shared storage bucket for state and ensure modules are loaded
 	@if [ ! -d .terraform ]; then ${TF_PATH} init; else ${TF_PATH} get --update > /dev/null;fi
 
 list-workspaces: init ## Displays list of workspaces
@@ -72,22 +69,22 @@ select-%: init ## Change to the provided workspace
 plan-%: select-% plan ## Run terraform plan against the defined workspace
 	: # This is because make doesnt like this target to not have any actions
 
-plan: init  ## Run terraform plan against the current workspace
-	${TF_PATH} plan -var-file=$(shell cat .terraform/environment).tfvars
+plan: check-workspace  ## Run terraform plan against the current workspace
+	${TF_PATH} plan -var-file="$(shell ${WORKSPACE} | sed 's!\.!/!').tfvars"
 
 test: plan ## Standard entry point for running tests. Calls plan
 
 apply-%: select-% apply ## Run terraform apply against the defined workspace
 	: # This is because make doesnt like this target to not have any actions
 
-apply: init ## Run terraform apply against the current workspace
-	${TF_PATH} apply -var-file=$(shell cat .terraform/environment).tfvars
+apply: check-workspace ## Run terraform apply against the current workspace
+	${TF_PATH} apply -var-file="$(shell ${WORKSPACE} | sed 's!\.!/!').tfvars"
 
-show: init ## Run terraform show against the current workspace
+show: check-workspace ## Run terraform show against the current workspace
 	${TF_PATH} show
 
-show-node: init ## Run terraform show against the current workspace. NODE_REGEX search pattern
-	${TF_PATH} show  | grep -P '^module| id| ip' | grep -C1 -P "${NODE_REGEX}"
+show: check-workspace ## Run terraform show against the current workspace, optional regex. syntax: make show REGEX=<grep expression>
+	scripts/show.sh "${REGEX}"
 
-taint-node: init ## Run terraform taint against the current workspace. NODE_REGEX search pattern
-	./scripts/taint.sh ${TF_PATH} ${NODE_REGEX}
+taint: check-workspace ## Run terraform taint against the current workspace, optional regex. syntax: make taint REGEX=<grep expression>
+	scripts/taint.sh "${REGEX}"

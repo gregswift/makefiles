@@ -2,6 +2,10 @@
 # We've had some success with using it manually and with Jenkins.
 #
 
+## Recommended .gitignore additions:
+# .env
+# .terraform
+
 ## Override any of the below ?= variables in .config.mk
 -include .config.mk
 ## If you have any local to your repository modifications or extensions
@@ -10,10 +14,10 @@
 ## specific TF_VAR environment variables
 -include local.mk
 
-DEFAULT_CLEAN_PATHS ?= *.zip *.backup $(TERRAFORM_DIR) ## Default paths for the main clean target
+DEFAULT_CLEAN_PATHS ?= *.zip *.backup $(TERRAFORM_DIR) $(CONTAINER_ENV) ## Default paths for the main clean target
 CLEAN_PATHS ?= ## Overrideable extra paths for cleanup
 CONTAINER_ENGINE ?= docker ## Commands will be executed via the container engine, expected to be docker cli compatible
-CONTAINER_ENV ?= .env
+CONTAINER_ENV ?= .env ## Collects the necessary environment variables for your docker runs
 CONTAINER_WORK_DIR ?= /data
 TERRAFORM_DIR ?= .terraform
 TERRAFORM_IMAGE ?= docker.io/hashicorp/terraform

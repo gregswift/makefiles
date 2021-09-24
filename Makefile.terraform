@@ -19,6 +19,7 @@ ifeq ("$(AWS_CONFIG)", "$(wildcard $(AWS_CONFIG))")
 	BASE_ENV := -v $(AWS_CONFIG):/root/.aws:Z --env-file=$(CONTAINER_ENV)
 endif
 BASE_ENV := $(BASE_ENV) --env-file=$(CONTAINER_ENV)
+BASE_USER := -u $(shell id -u ${USER}):$(shell id -g ${USER})
 BASE_WORKDIR := -w $(CONTAINER_WORK_DIR) -v "$(CURDIR)":$(CONTAINER_WORK_DIR):Z
 
 # Container based commands to for use handling target steps
@@ -34,10 +35,20 @@ endif
 
 all: help
 
-.PHONY:.check-env
+# Exports the variables for shell use
+export
+
+# This helper function makes debuging much easier.
+.PHONY: debug-%
+.SILENT: debug-%
+debug-%:              ## Debug a variable by calling `make debug-VARIABLE`
+	echo $(*) = $($(*))
+
+.PHONY: .check-env
+.SILENT: .check-env
 .check-env:
 ifeq ($(origin TERRAFORM_STATE_S3), "yes")
-	@if [ "${AWS_PROFILE}" == "" ]; then \
+	if [ "${AWS_PROFILE}" == "" ]; then \
 		if [ "${AWS_SECRET_ACCESS_KEY}" == "" ] || [ "${AWS_ACCESS_KEY_ID}" == "" ]; then \
 			echo "ERROR: AWS_PROFILE _or_ AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be profiled"; \
 			exit 1; \
@@ -46,18 +57,22 @@ ifeq ($(origin TERRAFORM_STATE_S3), "yes")
 endif
 
 .PHONY: help
+.SILENT: help
 help:   ## Show this help, includes list of all actions.
-	@awk 'BEGIN {FS = ":.*?## "}; /^.+: .*?## / && !/awk/ {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' ${MAKEFILE_LIST}
+	awk 'BEGIN {FS = ":.*?## "}; /^.+: .*?## / && !/awk/ {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' ${MAKEFILE_LIST}
 
 .PHONY: clean
 clean: ## Cleanup the local checkout
-	-rm -f *.zip *.backup $(TERRAFORM_DIR)
+	-rm -f *.zip *.backup
+	-rf -rf $(TERRAFORM_DIR)
 
+.SILENT: $(CONTAINER_ENV)
 $(CONTAINER_ENV):
-	@env | awk '!/TOKEN/ && /^(AWS)/ { print }' | sort > $(@)
+	env | awk '!/TOKEN/ && /^(AWS)/ { print }' | sort > $(@)
 
-$(TERRAFORM_DIR): $(BUILD_ENV)
-	@if [ ! -d $(TERRAFORM_DIR) ]; then $(TERRAFORM_COMMAND) init; else $(TERRAFORM_COMMAND) get --update > /dev/null; fi
+.SILENT: $(TERRAFORM_DIR)
+$(TERRAFORM_DIR): $(CONTAINER_ENV)
+	if [ ! -d $(TERRAFORM_DIR) ]; then $(TERRAFORM_COMMAND) init; else $(TERRAFORM_COMMAND) get --update > /dev/null; fi
 
 .PHONY: init
 init: $(TERRAFORM_DIR) ## Initalize shared storage bucket for state and ensure modules are loaded
@@ -74,25 +89,29 @@ new-workspace-%: init ## Creates and selects a new workspace
 select-%: init ## Change to the provided workspace
 	$(TERRAFORM_COMMAND) workspace select $*
 
+.PHONY: plan-%
 plan-%: select-% plan ## Run terraform plan against the defined workspace
 	: # This is because make doesnt like wildcard targets to not have any actions
 
+.PHONY: plan
 plan: init  ## Run terraform plan against the current workspace
 	$(TERRAFORM_COMMAND) plan $(TERRAFORM_VAR_FILE)
 
+.PHONY: test
 test: plan ## Standard entry point for running tests. Calls plan
 
+.PHONY: apply-%
 apply-%: select-% apply ## Run terraform apply against the defined workspace
 	: # This is because make doesnt like this target to not have any actions
 
+.PHONY: apply
 apply: init ## Run terraform apply against the current workspace
 	$(TERRAFORM_COMMAND) apply $(TERRAFORM_VAR_FILE)
 
-show: init ## Run terraform show against the current workspace
-	$(TERRAFORM_COMMAND) show
+.PHONY: show
+show: init ## Run terraform show against the current workspace. ex: make show RESOURCE=something.or.other
+	$(TERRAFORM_COMMAND) show $(RESOURCE)
 
-show-node: init ## Run terraform show against the current workspace. NODE_REGEX search pattern
-	$(TERRAFORM_COMMAND) show | grep -P '^module| id| ip' | grep -C1 -P "${NODE_REGEX}"
-
-taint-node: init ## Run terraform taint against the current workspace. NODE_REGEX search pattern
-	./scripts/taint.sh $(TERRAFORM_COMMAND) ${NODE_REGEX}
+.PHONY: taint
+taint: init ## Run terraform taint in current workspace against a resource. ex: make taint RESOURCE=something.or.other
+	$(TERRAFORM_COMMAND) taint $(RESOURCE)

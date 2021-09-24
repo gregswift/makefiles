@@ -5,23 +5,31 @@
 ## Override any of the below ?= variables in .config.mk
 -include .config.mk
 
+AWS_CONFIG ?= ${HOME}/.aws
+TERRAFORM_DIR ?= .terraform
 TERRAFORM_IMAGE ?= docker.io/hashicorp/terraform
 TERRAFORM_VERSION ?= 1.0.7 ## Terraform is very version specific, so know what you need
 TERRAFORM_STATE_S3 ?= yes ## If using S3 for shared state, override this with a 'yes'
 CONTAINER_ENGINE ?= docker ## Commands will be executed via the container engine, expected to be docker cli compatible
-CONTAINER_WORK_DIR ?= /data
 CONTAINER_ENV ?= .env
+CONTAINER_WORK_DIR ?= /data
 
-BASE_ENV := -v ~/.aws:/root/.aws:Z --env-file=$(CONTAINER_ENV)
+# Helper switches for the BASE_COMMAND
+ifeq ("$(AWS_CONFIG)", "$(wildcard $(AWS_CONFIG))")
+	BASE_ENV := -v $(AWS_CONFIG):/root/.aws:Z --env-file=$(CONTAINER_ENV)
+endif
+BASE_ENV := $(BASE_ENV) --env-file=$(CONTAINER_ENV)
 BASE_WORKDIR := -w $(CONTAINER_WORK_DIR) -v "$(CURDIR)":$(CONTAINER_WORK_DIR):Z
+
 # Container based commands to for use handling target steps
 BASE_COMMAND := $(CONTAINER_ENGINE) run --rm -it $(BASE_ENV) $(BASE_WORKDIR)
 TERRAFORM_COMMAND := $(BASE_COMMAND) $(TERRAFORM_IMAGE):$(TERRAFORM_VERSION)
 
 # Determine some runtime values
-ifeq (".terraform/environment", "$(wildcard .terraform/environment)")
+TERRAFORM_ENVIRONMENT := $(TERRAFORM_DIR)/environment
+ifeq ("$(TERRAFORM_ENVIRONMENT)", "$(wildcard $(TERRAFORM_ENVIRONMENT))")
 	# if file exists on disk, get the workspace from it
-	TERRAFORM_VAR_FILE := -var-file=$(shell cat .terraform/environment).tfvars
+	TERRAFORM_VAR_FILE := -var-file=$(shell cat $(TERRAFORM_ENVIRONMENT)).tfvars
 endif
 
 all: help
@@ -43,16 +51,16 @@ help:   ## Show this help, includes list of all actions.
 
 .PHONY: clean
 clean: ## Cleanup the local checkout
-	-rm -f *.zip *.backup .terraform
+	-rm -f *.zip *.backup $(TERRAFORM_DIR)
 
 $(CONTAINER_ENV):
 	@env | awk '!/TOKEN/ && /^(AWS)/ { print }' | sort > $(@)
 
-.terraform: $(BUILD_ENV)
-	@if [ ! -d .terraform ]; then $(TERRAFORM_COMMAND) init; else $(TERRAFORM_COMMAND) get --update > /dev/null; fi
+$(TERRAFORM_DIR): $(BUILD_ENV)
+	@if [ ! -d $(TERRAFORM_DIR) ]; then $(TERRAFORM_COMMAND) init; else $(TERRAFORM_COMMAND) get --update > /dev/null; fi
 
 .PHONY: init
-init: .terraform ## Initalize shared storage bucket for state and ensure modules are loaded
+init: $(TERRAFORM_DIR) ## Initalize shared storage bucket for state and ensure modules are loaded
 
 .PHONY: list-workspaces
 list-workspaces: init ## Displays list of workspaces

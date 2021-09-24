@@ -4,8 +4,13 @@
 
 ## Override any of the below ?= variables in .config.mk
 -include .config.mk
+## If you have any local to your repository modifications or extensions
+## for this makefile load them into local.mk
+## A good usecase would be creating another .check-env:: that looks for
+## specific TF_VAR environment variables
+-include local.mk
 
-AWS_CONFIG ?= ${HOME}/.aws
+USER_AWS_CONFIG ?= ${HOME}/.aws
 TERRAFORM_DIR ?= .terraform
 TERRAFORM_IMAGE ?= docker.io/hashicorp/terraform
 TERRAFORM_VERSION ?= 1.0.7 ## Terraform is very version specific, so know what you need
@@ -15,22 +20,25 @@ CONTAINER_ENV ?= .env
 CONTAINER_WORK_DIR ?= /data
 
 # Helper switches for the BASE_COMMAND
-ifeq ("$(AWS_CONFIG)", "$(wildcard $(AWS_CONFIG))")
-	BASE_ENV := -v $(AWS_CONFIG):/root/.aws:Z --env-file=$(CONTAINER_ENV)
+ifeq ("$(USER_AWS_CONFIG)", "$(wildcard $(USER_AWS_CONFIG))")
+	BASE_ENV := -v $(USER_AWS_CONFIG):/.aws:Z
 endif
 BASE_ENV := $(BASE_ENV) --env-file=$(CONTAINER_ENV)
 BASE_USER := -u $(shell id -u ${USER}):$(shell id -g ${USER})
 BASE_WORKDIR := -w $(CONTAINER_WORK_DIR) -v "$(CURDIR)":$(CONTAINER_WORK_DIR):Z
 
 # Container based commands to for use handling target steps
-BASE_COMMAND := $(CONTAINER_ENGINE) run --rm -it $(BASE_ENV) $(BASE_WORKDIR)
+BASE_COMMAND := $(CONTAINER_ENGINE) run --rm -it $(BASE_USER) $(BASE_ENV) $(BASE_WORKDIR)
 TERRAFORM_COMMAND := $(BASE_COMMAND) $(TERRAFORM_IMAGE):$(TERRAFORM_VERSION)
 
 # Determine some runtime values
 TERRAFORM_ENVIRONMENT := $(TERRAFORM_DIR)/environment
 ifeq ("$(TERRAFORM_ENVIRONMENT)", "$(wildcard $(TERRAFORM_ENVIRONMENT))")
-	# if file exists on disk, get the workspace from it
-	TERRAFORM_VAR_FILE := -var-file=$(shell cat $(TERRAFORM_ENVIRONMENT)).tfvars
+	# If file exists on disk, get the workspace from it.
+        # Depending on your file and directory structure you may need to do some adjustments
+	# such as this sed that takes a region.tier workspace name and changes it to region/tier
+	# for the directory structure.
+	TERRAFORM_VAR_FILE := -var-file=$(shell cat $(TERRAFORM_ENVIRONMENT) | sed 's!\.!/!').tfvars
 endif
 
 all: help
@@ -46,7 +54,7 @@ debug-%:              ## Debug a variable by calling `make debug-VARIABLE`
 
 .PHONY: .check-env
 .SILENT: .check-env
-.check-env:
+.check-env:: # This is ::'d so that you can add a custom version to local.mk for repo specific checks
 ifeq ($(origin TERRAFORM_STATE_S3), "yes")
 	if [ "${AWS_PROFILE}" == "" ]; then \
 		if [ "${AWS_SECRET_ACCESS_KEY}" == "" ] || [ "${AWS_ACCESS_KEY_ID}" == "" ]; then \
@@ -64,11 +72,11 @@ help:   ## Show this help, includes list of all actions.
 .PHONY: clean
 clean: ## Cleanup the local checkout
 	-rm -f *.zip *.backup
-	-rf -rf $(TERRAFORM_DIR)
+	-rm -rf $(TERRAFORM_DIR)
 
 .SILENT: $(CONTAINER_ENV)
 $(CONTAINER_ENV):
-	env | awk '!/TOKEN/ && /^(AWS)/ { print }' | sort > $(@)
+	env | awk '!/TOKEN/ && /^(AWS|TF_VAR)/ { print }' | sort > $(@)
 
 .SILENT: $(TERRAFORM_DIR)
 $(TERRAFORM_DIR): $(CONTAINER_ENV)

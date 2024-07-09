@@ -1,0 +1,133 @@
+#SERIAL 2019011501
+
+# This makefile is intended to enable Python projects using strictly a container based runtime.
+
+## Recommended .gitignore additions:
+# .env
+# .python-cache
+# build/
+# artifacts/
+
+## Override any of the below ?= variables in .config.mk
+-include .config.mk
+## If you have any local to your repository modifications or extensions
+## for this makefile load them into local.mk
+## A good usecase would be creating another .check-env:: that looks for
+## specific environment variables you need
+-include local.mk
+
+DEFAULT_CLEAN_PATHS ?= $(BUILD_DIR)/ $(CACHE_DIR) $(CONTAINER_ENV) *~ *.egg-info $(shell find . -name '*.pyc' -type f -print) ## Default paths for the main clean target
+CLEAN_PATHS ?= ## Overrideable extra paths for cleanup
+CONTAINER_ENGINE ?= docker ## Commands will be executed via the container engine, expected to be docker cli compatible
+CONTAINER_ENV ?= .env ## Collects the necessary environment variables for your docker runs
+CONTAINER_WORK_DIR ?= /data
+PYTHON_DIR ?= .python-cache
+PYTHON_IMAGE ?= docker.io/library/python
+PYTHON_VERSION ?= 3.9 ## 
+PYTHON_USER_DIR ?= /root/.local
+PYTHON_USER_BIN := $(PYTHON_USER_DIR)/bin
+
+BASE_ENV := $(BASE_ENV) --env-file=$(CONTAINER_ENV)
+BASE_USER := -u $(shell id -u ${USER}):$(shell id -g ${USER})
+BASE_WORKDIR := -w $(CONTAINER_WORK_DIR) -v "$(CURDIR)":$(CONTAINER_WORK_DIR):Z
+BASE_CACHEDIR := -v "$(CURDIR)/$(PYTHON_DIR)":$(PYTHON_USER_DIR):Z
+
+# Container based commands to for use handling target steps
+BASE_COMMAND := $(CONTAINER_ENGINE) run --rm -it $(BASE_USER) $(BASE_ENV) $(BASE_WORKDIR) $(BASE_CACHEDIR)
+PYTHON_COMMAND := $(BASE_COMMAND) $(PYTHON_IMAGE):$(PYTHON_VERSION)
+
+## Various Python commands that will commonly be used
+PIP_INSTALL := $(PYTHON_COMMAND) pip install --user
+## The disable and ignores here should probably be pushed to variables that can be overridden
+PYCODESTYLE := $(PYTHON_COMMAND) $(PYTHON_USER_BIN)/pycodestyle --repeat --ignore=E202,E501,E402
+PYLINT := $(PYTHON_COMMAND) $(PYTHON_USER_BIN)/pylint --disable=I0011 --msg-template="{path}:{line}: [{msg_id}({symbol}), {obj}] {msg}"
+PYTEST := $(PYTHON_COMMAND) $(PYTHON_USER_BIN)/py.test
+
+REQUIREMENTS := requirements.txt
+TEST_REQUIREMENTS := test-requirements.txt
+
+# Variables for clean build directory tree under repository
+BUILD_DIR = ./build
+ARTIFACT_DIR = ./artifacts
+SDIST_DIR = ${ARTIFACTDIR}/sdist
+WHEEL_DIR = ${ARTIFACTDIR}/wheels
+
+GET_SDIST = ${PYTHON} setup.py sdist -d "${SDIST_DIR}"
+
+# Exports the variables for shell use
+export
+
+.PHONY: help
+.SILENT: help
+help:   ## Show this help, includes list of all actions.
+	awk 'BEGIN {FS = ":.*?## "}; /^.+: .*?## / && !/awk/ {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' ${MAKEFILE_LIST}
+
+# This helper function makes debuging much easier.
+.PHONY: debug-%
+.SILENT: debug-%
+debug-%:              ## Debug a variable by calling `make debug-VARIABLE`
+	echo $(*) = $($(*))
+
+.PHONY: clean
+clean: ## Cleanup the local checkout
+	-rm -rf $(DEFAULT_CLEAN_PATHS) $(CLEAN_PATHS)
+
+.SILENT: $(CONTAINER_ENV)
+$(CONTAINER_ENV):
+	env | awk '!/TOKEN/ && /^(AWS|TF_VAR)/ { print }' | sort > $(@)
+
+.SILENT: $(PYTHON_DIR)
+$(PYTHON_DIR): $(CONTAINER_ENV)
+	mkdir -p $(@)
+
+.PHONY: requirements
+requirements: $(PYTHON_DIR)
+	$(PIP_INSTALL) -r $(REQUIREMENTS)
+
+.PHONY: test-requirements
+test-requirements: $(PYTHON_DIR)
+	$(PIP_INSTALL) -r $(TEST_REQUIREMENTS)
+
+.PHONY: setup
+setup: requirements
+
+.PHONY: check-coding-style
+check-coding-style: test-requirements
+	$(PYCODESTYLE) $(PYTHON_MODULES)
+	$(PYLINT) -E $(PYTHON_MODULES)
+
+.PHONY: pylint-full
+pylint-full: check-coding-style
+	$(PYLINT) $(PYTHON_MODULES)
+
+.PHONY: test
+test: check-coding-style
+	$(PYTEST) $(PYTHON_MODULES)
+
+.PHONY: check
+check:
+	$(PYTEST) $(PYTHON_MODULES)
+
+.PHONY: build
+build: clean
+	${PYTHON} setup.py build -f
+
+.PHONY: install
+install: build
+	${PYTHON} setup.py install -f --root ${DESTDIR}/
+
+.PHONY: uninstall
+uninstall: clean
+	rm -f /usr/bin/${PACKAGE}
+	rm -rf /usr/lib/python*/site-packages/${PACKAGE}
+
+.PHONY: sdist
+sdist:
+	mkdir -p ${SDISTDIR}
+	${GET_SDIST}
+
+.PHONY: wheel
+wheel:
+	mkdir -p ${WHEELDIR}
+	${PYTHON} setup.py bdist_wheel -d "${WHEELDIR}"
+

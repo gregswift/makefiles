@@ -28,12 +28,11 @@ PYTHON_USER_DIR ?= /root/.local
 PYTHON_USER_BIN := $(PYTHON_USER_DIR)/bin
 
 BASE_ENV := $(BASE_ENV) --env-file=$(CONTAINER_ENV)
-BASE_USER := -u $(shell id -u ${USER}):$(shell id -g ${USER})
 BASE_WORKDIR := -w $(CONTAINER_WORK_DIR) -v "$(CURDIR)":$(CONTAINER_WORK_DIR):Z
 BASE_CACHEDIR := -v "$(CURDIR)/$(PYTHON_DIR)":$(PYTHON_USER_DIR):Z
 
 # Container based commands to for use handling target steps
-BASE_COMMAND := $(CONTAINER_ENGINE) run --rm -it $(BASE_USER) $(BASE_ENV) $(BASE_WORKDIR) $(BASE_CACHEDIR)
+BASE_COMMAND := $(CONTAINER_ENGINE) run --rm -it $(BASE_ENV) $(BASE_WORKDIR) $(BASE_CACHEDIR)
 PYTHON_COMMAND := $(BASE_COMMAND) $(PYTHON_IMAGE):$(PYTHON_VERSION)
 
 ## Various Python commands that will commonly be used
@@ -52,7 +51,7 @@ ARTIFACT_DIR = ./artifacts
 SDIST_DIR = ${ARTIFACTDIR}/sdist
 WHEEL_DIR = ${ARTIFACTDIR}/wheels
 
-GET_SDIST = ${PYTHON} setup.py sdist -d "${SDIST_DIR}"
+GET_SDIST = $(PYTHON_COMMAND) setup.py sdist -d "${SDIST_DIR}"
 
 # Exports the variables for shell use
 export
@@ -110,11 +109,11 @@ check:
 
 .PHONY: build
 build: clean
-	${PYTHON} setup.py build -f
+	$(PYTHON_COMMAND) setup.py build -f
 
 .PHONY: install
 install: build
-	${PYTHON} setup.py install -f --root ${DESTDIR}/
+	$(PYTHON_COMMAND) setup.py install -f --root ${DESTDIR}/
 
 .PHONY: uninstall
 uninstall: clean
@@ -129,5 +128,9 @@ sdist:
 .PHONY: wheel
 wheel:
 	mkdir -p ${WHEELDIR}
-	${PYTHON} setup.py bdist_wheel -d "${WHEELDIR}"
+	$(PYTHON_COMMAND) setup.py bdist_wheel -d "${WHEELDIR}"
+
+.PHONY: shell
+shell:
+	$(PYTHON_COMMAND) /bin/bash
 

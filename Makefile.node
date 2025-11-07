@@ -1,0 +1,100 @@
+#Serial 2025110601
+# This makefile is intended to enable NodeJS/NPM repositories.
+
+## Recommended .gitignore additions:
+# .ash_history
+# .container-env
+# .node_repl_history
+# node_modules/
+# .npm/
+
+## Override any of the below ?= variables in .config.mk
+-include .config.mk
+## If you have any local to your repository modifications or extensions
+## for this makefile load them into local.mk
+## A good usecase would be creating another .check-env:: that looks for
+## specific NPM/Node related environment variables
+-include local.mk
+
+DEFAULT_CLEAN_PATHS ?= *.zip *.backup .node_repl_history .ash_history $(CONTAINER_ENV) ## Default paths for the main clean target
+CLEAN_PATHS ?= ## Overrideable extra paths for cleanup
+CONTAINER_ENGINE ?= docker ## Commands will be executed via the container engine, expected to be docker cli compatible
+CONTAINER_ENV ?= .container-env ## Collects the necessary environment variables for your docker runs
+CONTAINER_WORK_DIR ?= /data
+CONTAINER_IMAGE ?= docker.io/library/node
+CONTAINER_VERSION ?= lts-alpine ## Override this in .config.mk to pin an image
+CONTAINER_SHELL ?= /bin/ash
+NODE_ENTRYPOINT ?= server.js
+USER_AWS_CONFIG ?= ${HOME}/.aws
+
+# Helper switches for the BASE_COMMAND
+ifeq ("$(USER_AWS_CONFIG)", "$(wildcard $(USER_AWS_CONFIG))")
+	BASE_ENV := -v $(USER_AWS_CONFIG):/.aws:Z
+endif
+BASE_ENV := $(BASE_ENV) --env-file=$(CONTAINER_ENV)
+BASE_USER := -u $(shell id -u ${USER}):$(shell id -g ${USER})
+BASE_WORKDIR := -w $(CONTAINER_WORK_DIR) -v "$(CURDIR)":$(CONTAINER_WORK_DIR):Z
+
+# Container based commands to for use handling target steps
+BASE_COMMAND := $(CONTAINER_ENGINE) run --rm -it $(BASE_USER) $(BASE_ENV) $(BASE_WORKDIR)
+COMMAND := $(BASE_COMMAND) $(CONTAINER_IMAGE):$(CONTAINER_VERSION)
+
+all: help
+
+# Exports the variables for shell use
+export
+
+# This helper function makes debuging much easier.
+.PHONY: debug-%
+.SILENT: debug-%
+debug-%:              ## Debug a variable by calling `make debug-VARIABLE`
+	echo $(*) = $($(*))
+
+.PHONY: .check-env
+.SILENT: .check-env
+.check-env:: # This is ::'d so that you can add a custom version to local.mk for repo specific checks
+
+.PHONY: help
+.SILENT: help
+help:   ## Show this help, includes list of all actions.
+	awk 'BEGIN {FS = ":.*?## "}; /^.+: .*?## / && !/awk/ {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' ${MAKEFILE_LIST}
+
+.PHONY: clean
+clean: ## Cleanup the local checkout
+	-rm -rf $(DEFAULT_CLEAN_PATHS) $(CLEAN_PATHS)
+
+.SILENT: $(CONTAINER_ENV)
+$(CONTAINER_ENV):
+	env | awk '!/TOKEN/ && /^(AWS)/ { print }' | sort > $(CONTAINER_ENV)
+
+package.json: ## If does not exist will `npm init` to create a new package.json for a new project
+	$(COMMAND) npm init
+
+.PHONY: init
+init: package.json $(CONTAINER_ENV) ## Used to initialize repository by loading dependencies
+	$(COMMAND) npm install
+
+.PHONY: repl
+repl: init ## To enter Node REPL interactively
+	$(COMMAND)
+
+.PHONY: run-%
+run-%: init ## Standard entry point for running run scripts from packages.json in the container
+	$(COMMAND) npm run $*
+
+.PHONY: shell
+shell: init ## To interactively enter the container in a shell
+	$(COMMAND) $(CONTAINER_SHELL)
+
+# Your server needs to be able to catch SIGINT to be able to close this once it starts from the same terminal
+.PHONY: start
+start: init ## Standard entry point for running your application in the container
+	$(COMMAND) node $(NODE_ENTRYPOINT)
+
+.PHONY: test
+test: ## Standard entry point for running tests.
+	$(COMMAND) npm test
+
+.PHONY: update-dependencies
+update-dependencies: ## Run command to update dependencies in `packages.json`
+	$(COMMAND) npx npm-check-updates --upgrade

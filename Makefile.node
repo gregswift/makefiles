@@ -95,6 +95,10 @@ start: init ## Standard entry point for running your application in the containe
 test: ## Standard entry point for running tests.
 	$(COMMAND) npm test
 
+.PHONY: update
+update: package.json ## Will refresh the npm dependencies locally installed to match packages.json
+	$(COMMAND) npm update
+
 .PHONY: update-dependencies
 update-dependencies: ## Run command to update dependencies in `packages.json`
 	$(COMMAND) npx npm-check-updates --upgrade
